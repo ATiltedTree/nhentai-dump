@@ -1,0 +1,6 @@
+-- Your SQL goes here
+CREATE TABLE tags (
+    id INTEGER NOT NULL PRIMARY KEY,
+    ty INTEGER NOT NULL,
+    name VARCHAR NOT NULL
+)
