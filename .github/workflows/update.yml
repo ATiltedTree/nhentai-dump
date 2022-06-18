@@ -13,10 +13,10 @@ jobs:
         uses: actions/checkout@v3
       - name: Setup | Database Version
         id: database_ver
-        run: echo '::set-output name=version::$(date --date=@$(( $(date +%s) - 86400)) +"%d.%m.%Y")'
+        run: echo "::set-output name=version::$(date --date=@$(( $(date +%s) - 86400)) +'%d.%m.%Y')"
       - name: Setup | New Version
         id: new_ver
-        run: echo '::set-output name=version::$(date +"%d.%m.%Y")'
+        run: echo "::set-output name=version::$(date +'%d.%m.%Y')"
       - name: Setup | Database
         id: database
         uses: scoremedia/action-download-github-release-artifact@v1
