@@ -16,33 +16,48 @@ mod schema;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use schema::galleries::dsl::*;
+
     dotenv::dotenv()?;
 
     let db = SqliteConnection::establish(&std::env::var("DATABASE_URL").unwrap())?;
     let client = nhentai::Client::new(std::env::var("NHENTAI_COOKIE").ok().as_deref());
 
-    let start = std::env::args().nth(1).unwrap().parse()?;
-    let end = std::env::args().nth(2).unwrap().parse()?;
+    let start: i32 = galleries
+        .select(id)
+        .order(id.desc())
+        .limit(1)
+        .get_results(&db)
+        .unwrap()[0];
 
-    let bar = ProgressBar::new(end as u64);
+    let start = start as u32;
+
+    let bar = ProgressBar::new_spinner();
 
     bar.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:60.cyan/blue} {pos:>7}/{len:7} {eta_precise}")
+            .template("[{elapsed_precise}] {pos:>7}")
             .progress_chars("#>-"),
     );
     bar.set_position(start as u64);
 
-    for id in start..=end {
-        loop {
-            let res = process(&client, &db, id).await;
+    let mut missing = 0;
+
+    'id: for i in start.. {
+        'rep: loop {
+            let res = process(&client, &db, i).await;
 
             match res {
                 Ok(_) => {
-                    break;
+                    missing = 0;
+                    break 'rep;
                 }
-                Err(nhentai::Error::NotFound(_)) => {
-                    break;
+                Err(nhentai::Error::DoesNotExist) => {
+                    if missing == 10 {
+                        break 'id;
+                    }
+                    missing += 1;
+                    break 'rep;
                 }
                 // retry
                 Err(_) => {}
@@ -52,7 +67,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         bar.inc(1);
     }
-    bar.finish();
 
     Ok(())
 }
