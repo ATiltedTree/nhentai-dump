@@ -2,6 +2,7 @@ name: Update
 on:
   schedule:
     - cron: "0 0 * * *"
+  workflow_call:
     
 jobs:
   update:
