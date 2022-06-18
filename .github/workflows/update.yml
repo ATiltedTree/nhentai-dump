@@ -1,0 +1,49 @@
+name: Update
+on:
+  schedule:
+    - cron: "0 0 * * *"
+    
+jobs:
+  update:
+    name: Update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v3
+      - name: Setup | Database Version
+        id: database_ver
+        run: echo '::set-output name=version::$(date --date=@$(( $(date +%s) - 86400)) +"%d.%m.%Y")'
+      - name: Setup | New Version
+        id: new_ver
+        run: echo '::set-output name=version::$(date +"%d.%m.%Y")'
+      - name: Setup | Database
+        id: database
+        uses: scoremedia/action-download-github-release-artifact@v1
+        with:
+          owner: ATiltedTree
+          repo: nhentai-dump
+          tag: ${{ steps.database_ver.outputs.version }}
+          artifact: hentai.db
+          destination: ./
+      - name: Setup | Rust
+        uses: actions-rs/toolchain@v1.0.7
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+      - name: Setup | Cache
+        uses: Swatinem/rust-cache@v1
+      - name: Update
+        run: cargo run --release
+        env:
+          DATABASE_URL: ${{ steps.database.outputs.artifact_url }}
+      - name: Tag
+        run: |
+          git commit --allow-empty -m '${{ steps.new_ver.outputs.version }}'
+          git tag '${{ steps.new_ver.outputs.version }}'
+          git push && git push --tags
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.new_ver.outputs.version }}          
+          files: ${{ steps.database.outputs.artifact_url }}
