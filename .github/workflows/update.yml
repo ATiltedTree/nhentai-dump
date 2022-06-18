@@ -25,7 +25,7 @@ jobs:
           repo: nhentai-dump
           tag: ${{ steps.database_ver.outputs.version }}
           artifact: hentai.db
-          destination: ./
+          destination: ./db
       - name: Setup | Rust
         uses: actions-rs/toolchain@v1.0.7
         with:
@@ -38,6 +38,7 @@ jobs:
         run: cargo run --release
         env:
           DATABASE_URL: ${{ steps.database.outputs.artifact_url }}
+          NHENTAI_COOKIE: ${{ secrets.NHENTAI_COOKIE }}
       - name: Tag
         run: |
           git commit --allow-empty -m '${{ steps.new_ver.outputs.version }}'
