@@ -37,7 +37,7 @@ jobs:
       - name: Update
         run: cargo run --release
         env:
-          DATABASE_URL: ${{ steps.database.outputs.artifact_url }}
+          DATABASE_URL: db/hentai.db
           NHENTAI_COOKIE: ${{ secrets.NHENTAI_COOKIE }}
       - name: Tag
         run: |
@@ -48,4 +48,4 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.new_ver.outputs.version }}          
-          files: ${{ steps.database.outputs.artifact_url }}
+          files: db/hentai.db

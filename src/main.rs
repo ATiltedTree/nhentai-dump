@@ -18,7 +18,7 @@ mod schema;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use schema::galleries::dsl::*;
 
-    dotenv::dotenv()?;
+    let _ = dotenv::dotenv();
 
     let db = SqliteConnection::establish(&std::env::var("DATABASE_URL").unwrap())?;
     let client = nhentai::Client::new(std::env::var("NHENTAI_COOKIE").ok().as_deref());
