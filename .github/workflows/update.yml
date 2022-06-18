@@ -41,6 +41,8 @@ jobs:
           NHENTAI_COOKIE: ${{ secrets.NHENTAI_COOKIE }}
       - name: Tag
         run: |
+          git config user.email "gha-bot@atiltedtree.dev"
+          git config user.name "Github Actions Bot"
           git commit --allow-empty -m '${{ steps.new_ver.outputs.version }}'
           git tag '${{ steps.new_ver.outputs.version }}'
           git push && git push --tags
