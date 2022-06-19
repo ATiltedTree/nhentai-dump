@@ -8,7 +8,6 @@ use diesel::prelude::*;
 use diesel::sql_types::Integer;
 use diesel::sqlite::SqliteConnection;
 use diesel::types::{FromSql, ToSql};
-use indicatif::{ProgressBar, ProgressStyle};
 use nhentai::gallery::TagType;
 
 mod models;
@@ -32,15 +31,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = start as u32;
 
-    let bar = ProgressBar::new_spinner();
-
-    bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {pos:>7}")
-            .progress_chars("#>-"),
-    );
-    bar.set_position(start as u64);
-
     let mut missing = 0;
 
     'id: for i in start.. {
@@ -49,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match res {
                 Ok(_) => {
+                    println!("{i}");
                     missing = 0;
                     break 'rep;
                 }
@@ -65,7 +56,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        bar.inc(1);
     }
 
     Ok(())

@@ -12,4 +12,3 @@ futures = "0.3"
 diesel = { version = "1.4.4", features = ["sqlite", "chrono"] }
 dotenv = "0.15.0"
 chrono = "*"
-indicatif = "0.16"
