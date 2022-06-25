@@ -39,6 +39,7 @@ jobs:
         env:
           DATABASE_URL: db/hentai.db
           NHENTAI_COOKIE: ${{ secrets.NHENTAI_COOKIE }}
+          NHENTAI_UA: ${{ secrets.NHENTAI_UA }}
       - name: Tag
         run: |
           git config user.email "gha-bot@atiltedtree.dev"
