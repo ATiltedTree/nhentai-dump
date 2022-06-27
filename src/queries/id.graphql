@@ -1,0 +1,19 @@
+query Id($id: Int!) {
+  nhentai {
+    by(id: $id channel: NHENTAI) {
+      id
+      title {
+        japanese
+        english
+        pretty
+      }
+      numPages
+      uploadDate
+      tags {
+        id
+        name
+        type
+      }
+    }
+  }
+}

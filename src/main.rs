@@ -1,16 +1,19 @@
+use std::io::ErrorKind;
+use std::str::FromStr;
 use std::time::Duration;
 
 #[macro_use]
 extern crate diesel;
 
+use chrono::NaiveDateTime;
 use diesel::backend::Backend;
 use diesel::prelude::*;
 use diesel::sql_types::Integer;
 use diesel::sqlite::SqliteConnection;
 use diesel::types::{FromSql, ToSql};
-use nhentai::gallery::TagType;
 
 mod models;
+mod queries;
 mod schema;
 
 #[tokio::main]
@@ -20,10 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = dotenv::dotenv();
 
     let db = SqliteConnection::establish(&std::env::var("DATABASE_URL").unwrap())?;
-    let client = nhentai::Client::new(
-        std::env::var("NHENTAI_COOKIE").ok().as_deref(),
-        std::env::var("NHENTAI_UA").ok().as_deref(),
-    );
+    let client = reqwest::Client::new();
 
     let start: i32 = galleries
         .select(id)
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_results(&db)
         .unwrap()[0];
 
-    let start = start as u32;
+    let start = start as u32 + 1;
 
     let mut missing = 0;
 
@@ -46,7 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     missing = 0;
                     break 'rep;
                 }
-                Err(nhentai::Error::DoesNotExist) => {
+                Err(err)
+                    if err
+                        .downcast_ref::<std::io::Error>()
+                        .map(|x| x.kind() == ErrorKind::NotFound)
+                        .unwrap_or(false) =>
+                {
                     if missing == 10 {
                         break 'id;
                     }
@@ -57,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(_) => {}
             }
 
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
 
@@ -65,10 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn process(
-    client: &nhentai::Client,
+    client: &reqwest::Client,
     db: &SqliteConnection,
     id: u32,
-) -> Result<(), nhentai::Error> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let res: Result<models::Gallery, diesel::result::Error> = schema::galleries::dsl::galleries
         .find(id as i32)
         .get_result(db);
@@ -76,17 +81,31 @@ async fn process(
     if res.is_ok() {
         return Ok(());
     }
-    let hentai = client.gallery(id).await?;
 
-    let title = hentai.title();
+    let hentai = graphql_client::reqwest::post_graphql::<queries::Id, _>(
+        client,
+        "https://api.hifumin.app",
+        queries::id::Variables { id: id as i64 },
+    )
+    .await?
+    .data
+    .unwrap()
+    .nhentai
+    .by;
+
+    let id = if let Some(id) = hentai.id {
+        id
+    } else {
+        return Err(std::io::Error::new(ErrorKind::NotFound, "Not Found").into());
+    };
 
     let new_gallery = models::NewGallery {
-        id: hentai.id() as i32,
-        title_english: title.english(),
-        title_japanese: title.japanese(),
-        title_pretty: title.pretty(),
-        date: hentai.date().naive_utc(),
-        num_pages: hentai.pages_len() as i32,
+        id: id as i32,
+        title_english: hentai.title.english.as_deref(),
+        title_japanese: hentai.title.japanese.as_deref(),
+        title_pretty: hentai.title.pretty.as_deref(),
+        date: NaiveDateTime::from_timestamp(hentai.upload_date.unwrap(), 0),
+        num_pages: hentai.num_pages.unwrap() as i32,
     };
 
     diesel::insert_into(schema::galleries::table)
@@ -97,21 +116,21 @@ async fn process(
     let mut new_tags = vec![];
     let mut new_gallery_tags = vec![];
 
-    for tag in hentai.tags() {
+    for tag in hentai.tags {
         let res: Result<models::Tag, diesel::result::Error> =
-            schema::tags::dsl::tags.find(tag.id() as i32).get_result(db);
+            schema::tags::dsl::tags.find(tag.id as i32).get_result(db);
         if res.is_err() {
             new_tags.push(models::NewTag {
-                id: tag.id() as i32,
-                ty: SqlTagType(tag.ty()),
-                name: tag.name().to_string(),
+                id: tag.id as i32,
+                ty: tag.type_.parse().unwrap(),
+                name: tag.name,
             });
         }
 
         new_gallery_tags.push(models::NewGalleryTag {
             id: None,
-            gallery_id: hentai.id() as i32,
-            tag_id: tag.id() as i32,
+            gallery_id: id as i32,
+            tag_id: tag.id as i32,
         });
     }
 
@@ -130,7 +149,34 @@ async fn process(
 
 #[derive(Debug, AsExpression, PartialEq, Eq, FromSqlRow)]
 #[sql_type = "Integer"]
-pub struct SqlTagType(TagType);
+pub enum SqlTagType {
+    Tag,
+    Language,
+    Artist,
+    Group,
+    Category,
+    Parody,
+    Character,
+}
+
+impl FromStr for SqlTagType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ty = match s {
+            "tag" => Self::Tag,
+            "language" => Self::Language,
+            "artist" => Self::Artist,
+            "group" => Self::Group,
+            "category" => Self::Category,
+            "parody" => Self::Parody,
+            "character" => Self::Character,
+            _ => return Err(()),
+        };
+
+        Ok(ty)
+    }
+}
 
 impl<DB> ToSql<Integer, DB> for SqlTagType
 where
@@ -141,14 +187,14 @@ where
         &self,
         out: &mut diesel::serialize::Output<W, DB>,
     ) -> diesel::serialize::Result {
-        let id = match self.0 {
-            TagType::Tag => 0,
-            TagType::Language => 1,
-            TagType::Artist => 2,
-            TagType::Group => 3,
-            TagType::Category => 4,
-            TagType::Parody => 5,
-            TagType::Character => 6,
+        let id = match self {
+            SqlTagType::Tag => 0,
+            SqlTagType::Language => 1,
+            SqlTagType::Artist => 2,
+            SqlTagType::Group => 3,
+            SqlTagType::Category => 4,
+            SqlTagType::Parody => 5,
+            SqlTagType::Character => 6,
         };
 
         id.to_sql(out)
@@ -162,17 +208,16 @@ where
 {
     fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
         let ty = match i32::from_sql(bytes)? {
-            0 => TagType::Tag,
-            1 => TagType::Language,
-            2 => TagType::Artist,
-            3 => TagType::Group,
-            4 => TagType::Category,
-            5 => TagType::Parody,
-            6 => TagType::Character,
+            0 => SqlTagType::Tag,
+            1 => SqlTagType::Language,
+            2 => SqlTagType::Artist,
+            3 => SqlTagType::Group,
+            4 => SqlTagType::Category,
+            5 => SqlTagType::Parody,
+            6 => SqlTagType::Character,
             _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "AA").into()),
         };
 
-        Ok(SqlTagType(ty))
-        //.map(|x| Self(TagType::from(x as u8)))
+        Ok(ty)
     }
 }

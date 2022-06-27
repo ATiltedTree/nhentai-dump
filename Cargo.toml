@@ -6,9 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nhentai = "0.3"
 tokio = { version = "*", features = ["full"] }
 futures = "0.3"
 diesel = { version = "1.4.4", features = ["sqlite", "chrono"] }
 dotenv = "0.15.0"
 chrono = "*"
+graphql_client = { version = "0.11", features = ["reqwest"] }
+serde = "1"
+reqwest = "0.11"

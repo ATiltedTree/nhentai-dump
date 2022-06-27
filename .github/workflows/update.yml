@@ -11,19 +11,18 @@ jobs:
     steps:
       - name: Setup | Checkout
         uses: actions/checkout@v3
-      - name: Setup | Database Version
-        id: database_ver
-        run: echo "::set-output name=version::$(date --date=@$(( $(date +%s) - 86400)) +'%d.%m.%Y')"
-      - name: Setup | New Version
-        id: new_ver
-        run: echo "::set-output name=version::$(date +'%d.%m.%Y')"
+      - name: Setup |  Version
+        id: version
+        run: |
+          echo "::set-output name=old::$(date --date=@$(( $(date +%s) - 86400)) +'%d.%m.%Y')"
+          echo "::set-output name=new::$(date +'%d.%m.%Y')"
       - name: Setup | Database
         id: database
         uses: scoremedia/action-download-github-release-artifact@v1
         with:
           owner: ATiltedTree
           repo: nhentai-dump
-          tag: ${{ steps.database_ver.outputs.version }}
+          tag: ${{ steps.version.outputs.old }}
           artifact: hentai.db
           destination: ./db
       - name: Setup | Rust
@@ -38,17 +37,15 @@ jobs:
         run: cargo run --release
         env:
           DATABASE_URL: db/hentai.db
-          NHENTAI_COOKIE: ${{ secrets.NHENTAI_COOKIE }}
-          NHENTAI_UA: ${{ secrets.NHENTAI_UA }}
       - name: Tag
         run: |
           git config user.email "gha-bot@atiltedtree.dev"
           git config user.name "Github Actions Bot"
-          git commit --allow-empty -m '${{ steps.new_ver.outputs.version }}'
-          git tag '${{ steps.new_ver.outputs.version }}'
+          git commit --allow-empty -m '${{ steps.version.outputs.new }}'
+          git tag '${{ steps.version.outputs.new }}'
           git push && git push --tags
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.new_ver.outputs.version }}          
+          tag_name: ${{ steps.version.outputs.new }}
           files: db/hentai.db
