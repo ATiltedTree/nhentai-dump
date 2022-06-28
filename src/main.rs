@@ -29,9 +29,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .order(id.desc())
         .limit(1)
         .get_results(&db)
-        .unwrap()[0];
+        .unwrap()
+        .get(0)
+        .unwrap_or(&-1)
+        .to_owned();
 
-    let start = start as u32 + 1;
+    let start = (start + 1) as u32;
 
     let mut missing = 0;
 
