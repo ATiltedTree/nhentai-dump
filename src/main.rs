@@ -1,6 +1,5 @@
 use std::io::ErrorKind;
 use std::str::FromStr;
-use std::time::Duration;
 
 #[macro_use]
 extern crate diesel;
@@ -61,8 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // retry
                 Err(_) => {}
             }
-
-            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
 
