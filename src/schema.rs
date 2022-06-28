@@ -28,4 +28,8 @@ table! {
 joinable!(gallery_tags -> galleries (gallery_id));
 joinable!(gallery_tags -> tags (tag_id));
 
-allow_tables_to_appear_in_same_query!(galleries, gallery_tags, tags,);
+allow_tables_to_appear_in_same_query!(
+    galleries,
+    gallery_tags,
+    tags,
+);
