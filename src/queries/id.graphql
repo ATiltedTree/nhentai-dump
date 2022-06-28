@@ -1,6 +1,6 @@
 query Id($id: Int!) {
   nhentai {
-    by(id: $id channel: NHENTAI) {
+    by(id: $id) {
       id
       title {
         japanese
