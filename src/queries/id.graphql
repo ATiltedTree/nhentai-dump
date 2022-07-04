@@ -1,18 +1,22 @@
-query Id($id: Int!) {
+query Id($ids: [Int!]!) {
   nhentai {
-    by(id: $id) {
-      id
-      title {
-        japanese
-        english
-        pretty
-      }
-      numPages
-      uploadDate
-      tags {
+    multiple(id: $ids) {
+      success
+      error
+      data {
         id
-        name
-        type
+        title {
+          japanese
+          english
+          pretty
+        }
+        numPages
+        uploadDate
+        tags {
+          id
+          name
+          type
+        }
       }
     }
   }

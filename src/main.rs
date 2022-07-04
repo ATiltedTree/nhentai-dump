@@ -1,3 +1,5 @@
+#![feature(iter_next_chunk)]
+
 use std::io::ErrorKind;
 use std::str::FromStr;
 
@@ -22,7 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = dotenv::dotenv();
 
     let db = SqliteConnection::establish(&std::env::var("DATABASE_URL").unwrap())?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent("nhentai-dump/0.1.0")
+        .build()
+        .unwrap();
 
     let start: i32 = galleries
         .select(id)
@@ -36,33 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = (start + 1) as u32;
 
-    let mut missing = 0;
+    let mut it = start..;
 
-    'id: for i in start.. {
-        'rep: loop {
-            let res = process(&client, &db, i).await;
+    while let Ok(i) = it.next_chunk::<25>() {
+        let res = process(&client, &db, i).await?;
 
-            match res {
-                Ok(_) => {
-                    println!("{i}");
-                    missing = 0;
-                    break 'rep;
-                }
-                Err(err)
-                    if err
-                        .downcast_ref::<std::io::Error>()
-                        .map(|x| x.kind() == ErrorKind::NotFound)
-                        .unwrap_or(false) =>
-                {
-                    if missing == 10 {
-                        break 'id;
-                    }
-                    missing += 1;
-                    break 'rep;
-                }
-                // retry
-                Err(_) => {}
-            }
+        if res != 25 {
+            break;
         }
     }
 
@@ -72,67 +57,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn process(
     client: &reqwest::Client,
     db: &SqliteConnection,
-    id: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let res: Result<models::Gallery, diesel::result::Error> = schema::galleries::dsl::galleries
-        .find(id as i32)
-        .get_result(db);
-
-    if res.is_ok() {
-        return Ok(());
-    }
-
+    ids: [u32; 25],
+) -> Result<usize, Box<dyn std::error::Error>> {
     let hentai = graphql_client::reqwest::post_graphql::<queries::Id, _>(
         client,
-        "https://api.hifumin.app",
-        queries::id::Variables { id: id as i64 },
+        "https://api.hifumin.app/v1/graphql",
+        queries::id::Variables {
+            ids: ids.map(|x| x as i64).to_vec(),
+        },
     )
-    .await?
+    .await
+    .unwrap()
     .data
     .unwrap()
     .nhentai
-    .by;
+    .multiple;
 
-    let id = if let Some(id) = hentai.id {
-        id
+    let hentais = if hentai.success {
+        hentai
+            .data
+            .into_iter()
+            .filter(|x| x.id.is_some())
+            .collect::<Vec<_>>()
     } else {
-        return Err(std::io::Error::new(ErrorKind::NotFound, "Not Found").into());
+        return Err(
+            std::io::Error::new(ErrorKind::Other, hentai.error.unwrap().to_string()).into(),
+        );
     };
 
-    let new_gallery = models::NewGallery {
-        id: id as i32,
-        title_english: hentai.title.english.as_deref(),
-        title_japanese: hentai.title.japanese.as_deref(),
-        title_pretty: hentai.title.pretty.as_deref(),
-        date: NaiveDateTime::from_timestamp(hentai.upload_date.unwrap(), 0),
-        num_pages: hentai.num_pages.unwrap() as i32,
-    };
-
-    diesel::insert_into(schema::galleries::table)
-        .values(&new_gallery)
-        .execute(db)
-        .expect("new gallery");
-
-    let mut new_tags = vec![];
+    let mut new_galleries = vec![];
+    let mut new_tags: Vec<models::NewTag> = vec![];
     let mut new_gallery_tags = vec![];
 
-    for tag in hentai.tags {
-        let res: Result<models::Tag, diesel::result::Error> =
-            schema::tags::dsl::tags.find(tag.id as i32).get_result(db);
-        if res.is_err() {
-            new_tags.push(models::NewTag {
-                id: tag.id as i32,
-                ty: tag.type_.parse().unwrap(),
-                name: tag.name,
-            });
+    let len = hentais.len();
+
+    for hentai in hentais {
+        let id = hentai.id.unwrap();
+        let res: Result<models::Gallery, diesel::result::Error> = schema::galleries::dsl::galleries
+            .find(id as i32)
+            .get_result(db);
+        if res.is_ok() {
+            continue;
         }
 
-        new_gallery_tags.push(models::NewGalleryTag {
-            id: None,
-            gallery_id: id as i32,
-            tag_id: tag.id as i32,
-        });
+        let new_gallery = models::NewGallery {
+            id: id as i32,
+            title_english: hentai.title.english,
+            title_japanese: hentai.title.japanese,
+            title_pretty: hentai.title.pretty,
+            date: NaiveDateTime::from_timestamp(hentai.upload_date.unwrap(), 0),
+            num_pages: hentai.num_pages.unwrap() as i32,
+        };
+
+        new_galleries.push(new_gallery);
+
+        for tag in hentai.tags {
+            let res: Result<models::Tag, diesel::result::Error> =
+                schema::tags::dsl::tags.find(tag.id as i32).get_result(db);
+            if res.is_err() && new_tags.iter().find(|x| x.id == tag.id as i32).is_none() {
+                new_tags.push(models::NewTag {
+                    id: tag.id as i32,
+                    ty: tag.type_.parse().unwrap(),
+                    name: tag.name,
+                });
+            }
+
+            new_gallery_tags.push(models::NewGalleryTag {
+                id: None,
+                gallery_id: id as i32,
+                tag_id: tag.id as i32,
+            });
+        }
+        println!("{id}");
     }
+
+    diesel::insert_into(schema::galleries::table)
+        .values(&new_galleries)
+        .execute(db)
+        .expect("new gallery");
 
     diesel::insert_into(schema::tags::table)
         .values(&new_tags)
@@ -144,7 +146,7 @@ async fn process(
         .execute(db)
         .expect("new gallery_tag");
 
-    Ok(())
+    Ok(len)
 }
 
 #[derive(Debug, AsExpression, PartialEq, Eq, FromSqlRow)]

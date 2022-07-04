@@ -29,11 +29,11 @@ pub struct Gallery {
 
 #[derive(Insertable)]
 #[table_name = "galleries"]
-pub struct NewGallery<'a> {
+pub struct NewGallery {
     pub id: i32,
-    pub title_english: Option<&'a str>,
-    pub title_japanese: Option<&'a str>,
-    pub title_pretty: Option<&'a str>,
+    pub title_english: Option<String>,
+    pub title_japanese: Option<String>,
+    pub title_pretty: Option<String>,
     pub date: chrono::NaiveDateTime,
     pub num_pages: i32,
 }
